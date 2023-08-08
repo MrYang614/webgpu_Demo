@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Document</title>
+
+		<style>
+			* {
+				margin: 0;
+				padding: 0;
+			}
+			.options {
+				position: absolute;
+				left: 0;
+				top: 0;
+				background-color: rgba(255, 255, 0, 0.3);
+				z-index: 1;
+			}
+		</style>
+	</head>
+	<body>
+		<span class="options"></span>
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "./three/build/three.module.js",
+					"three/addons/": "./three/examples/jsm/",
+					"three/nodes": "./three/examples/jsm/nodes/Nodes.js"
+				}
+			}
+		</script>
+		<script type="module">
+			import * as THREE from "three";
+			import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+			import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+			import Stats from "three/addons/libs/stats.module.js";
+			import WebGPURenderer from "three/addons/renderers/webgpu/WebGPURenderer.js";
+
+			const { innerWidth, innerHeight } = window;
+			const aspect = innerWidth / innerHeight;
+
+			class Base {
+				constructor() {
+					this.init();
+					this.main();
+				}
+				main() {
+					const ls = 14;
+					const ws = 5;
+					const lss = ls + 1;
+					const wss = ws + 1;
+
+					const faceCount = ls * ws * 2;
+					const vertexCount = lss * wss;
+
+					const indices = new Uint32Array(faceCount * 3);
+					const vertices = new Float32Array(vertexCount * 3);
+
+					const geometry = new THREE.BufferGeometry();
+					geometry.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
+
+					let idxCount = 0;
+					let a, b1, c1, c2;
+
+					// 设置顶点位置 —————————— 这部分最难理解了！！！
+					for (let j = 0; j < ls; j++) {
+						for (let i = 0; i < ws; i++) {
+							a = wss * j + i;
+							b1 = wss * (j + 1) + i;
+							c1 = wss * (j + 1) + i + 1;
+							c2 = wss * j + i + 1;
+
+							indices[idxCount] = a;
+							indices[idxCount + 1] = b1;
+							indices[idxCount + 2] = c1;
+
+							//
+							indices[idxCount + 3] = a;
+							indices[idxCount + 4] = c1;
+							indices[idxCount + 5] = c2;
+
+							// 将当前几何体分割成组进行渲染，每个部分都会在单独的 WebGL 的 draw call 中进行绘制。该方法可以让当前的 bufferGeometry 可以使用一个材质队列进行描述。
+							geometry.addGroup(idxCount, 6, i);
+
+							idxCount += 6;
+						}
+					}
+					const points = [
+						new THREE.Vector3(-6, 0, 10),
+						new THREE.Vector3(-5.885327104850387, 0, 10.001158863137364),
+						new THREE.Vector3(-5.769916075422231, 0, 10.004527020910881),
+						new THREE.Vector3(-5.653821252889412, 0, 10.009941825862667),
+						new THREE.Vector3(-5.53709697842581, 0, 10.017240630534848),
+						new THREE.Vector3(-5.419797593205308, 0, 10.026260787469553),
+						new THREE.Vector3(-5.301977438401783, 0, 10.0368396492089),
+						new THREE.Vector3(-5.183690855189118, 0, 10.048814568295017),
+						new THREE.Vector3(-5.064992184741191, 0, 10.062022897270024),
+						new THREE.Vector3(-4.945935768231886, 0, 10.076301988676049),
+						new THREE.Vector3(-4.826575946835081, 0, 10.091489195055216),
+						new THREE.Vector3(-4.706967061724655, 0, 10.107421868949647),
+						new THREE.Vector3(-4.587163454074493, 0, 10.123937362901465),
+						new THREE.Vector3(-4.467219465058474, 0, 10.140873029452798),
+						new THREE.Vector3(-4.347189435850474, 0, 10.158066221145766),
+						new THREE.Vector3(-4.227127707624381, 0, 10.175354290522497),
+						new THREE.Vector3(-4.107088621554068, 0, 10.192574590125112),
+						new THREE.Vector3(-3.9871265188134215, 0, 10.209564472495735),
+						new THREE.Vector3(-3.867295740576319, 0, 10.226161290176492),
+						new THREE.Vector3(-3.7476506280166406, 0, 10.242202395709507),
+						new THREE.Vector3(-3.628245522308269, 0, 10.257525141636902),
+					];
+
+					let posIndex = 0;
+					const dw = [-0.36, -0.34, -0.01, 0.01, 0.34, 0.36];
+					for (let j = 0; j < lss; j++) {
+						for (let i = 0; i < wss; i++) {
+							let x = points[j].x + dw[i];
+							let y = points[j].y;
+							let z = points[j].z + dw[i];
+
+							vertices[posIndex] = x;
+							vertices[posIndex + 1] = y;
+							vertices[posIndex + 2] = z;
+							posIndex += 3;
+						}
+					}
+					const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+					const mesh = new THREE.Mesh(geometry, material);
+					this.scene.add(mesh);
+				}
+				init() {
+					this.taskQueue = [];
+
+					this.clock = new THREE.Clock();
+					this.deltaTime = this.clock.getDelta();
+					this.elapsedTime = {
+						value: this.clock.getElapsedTime(),
+					};
+					this.stats = new Stats();
+					document.body.appendChild(this.stats.domElement);
+
+					this.renderer = new WebGPURenderer({ antialias: true });
+					// this.renderer = new THREE.WebGLRenderer({ antialias: true });
+
+					this.renderer.setPixelRatio(window.devicePixelRatio);
+					this.renderer.setSize(innerWidth, innerHeight);
+					this.renderer.setAnimationLoop(this.animate.bind(this));
+					document.body.appendChild(this.renderer.domElement);
+
+					const _fov = 60;
+					const _aspect = aspect;
+					const _near = 0.01;
+					const _far = 1000;
+					this.camera = new THREE.PerspectiveCamera(_fov, _aspect, _near, _far);
+					this.camera.position.set(0, 20, 20);
+
+					this.scene = new THREE.Scene();
+
+					this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+
+					this.gltfLoader = new GLTFLoader();
+
+					const grid = new THREE.GridHelper(100);
+					this.scene.add(grid);
+
+					const light = new THREE.AmbientLight(0xffffff, 0.5);
+					this.scene.add(light);
+
+					window.addEventListener("resize", (e) => {
+						const { innerWidth, innerHeight } = window;
+						this.camera.aspect = innerWidth / innerHeight;
+						this.camera.updateProjectionMatrix();
+						this.renderer.setSize(innerWidth, innerHeight);
+					});
+				}
+				animate() {
+					this.controls.update();
+					this.deltaTime = this.clock.getDelta();
+					this.elapsedTime.value = this.clock.getElapsedTime();
+					this.taskQueue.forEach((f) => {
+						f.bind(this)();
+					});
+					this.stats && this.stats.update();
+					this.renderer.render(this.scene, this.camera);
+				}
+			}
+			new Base();
+		</script>
+	</body>
+</html>

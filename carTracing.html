@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Document</title>
+
+		<style>
+			* {
+				margin: 0;
+				padding: 0;
+			}
+			.options {
+				position: absolute;
+				left: 0;
+				top: 0;
+				background-color: rgba(255, 255, 0, 0.3);
+				z-index: 1;
+			}
+		</style>
+	</head>
+	<body>
+		<span class="options"></span>
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "./three/build/three.module.js",
+					"three/addons/": "./three/examples/jsm/",
+					"three/nodes": "./three/examples/jsm/nodes/Nodes.js"
+				}
+			}
+		</script>
+		<script type="module">
+			import * as THREE from "three";
+			import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+			import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+			import Stats from "three/addons/libs/stats.module.js";
+			import WebGPURenderer from "three/addons/renderers/webgpu/WebGPURenderer.js";
+
+			const { innerWidth, innerHeight } = window;
+			const aspect = innerWidth / innerHeight;
+
+			const curvePoints = [
+				-6, 0, 10, -1, 0, 10, 3, 0, 4, 6, 0, 1, 11, 0, 2, 13, 0, 6, 9, 1, 9, 4, 1, 7, 1, 1, 1, 0, 1, -5, 2, 0, -9, 8, 0,
+				-10, 13, 0, -5, 14, 1, 2, 10, 3, 7, 2, 1, 8, -4, 3, 7, -8, 1, 1, -9, 1, -4, -6, 1, -9, 0, 1, -10, 7, 1, -7, 5,
+				2, 0, 0, 2, 2, -5, 1, 0, -7, 2, -5, -8, 2, -9, -11, 2, -10, -14, 1, -7, -13, 1, -2, -14, 0, 3, -11, 0, 10, -6,
+				0, 10,
+			];
+			const ls = 1400;
+			const ws = 5;
+			const lss = ls + 1;
+			const wss = ws + 1;
+
+			const tangents = []; // tangents
+			const normals = []; // normals
+			const biNormals = []; // biNormal
+
+			const positions = [];
+			for (let i = 0; i < curvePoints.length; i += 3) {
+				positions.push(new THREE.Vector3(curvePoints[i], curvePoints[i + 1], curvePoints[i + 2]));
+			}
+
+			const curve = new THREE.CatmullRomCurve3(positions);
+			const points = curve.getPoints(ls);
+			const len = curve.getLength();
+			const lenList = curve.getLengths(ls);
+
+			const faceCount = ls * ws * 2;
+			const vertexCount = lss * wss;
+
+			const M3 = new THREE.Matrix3();
+			const M4 = new THREE.Matrix4();
+			let iBlue = 0;
+			let iRed = ls;
+
+			class Base {
+				constructor() {
+					this.init();
+					this.main();
+				}
+				main() {
+					// index
+					const indices = new Uint32Array(faceCount * 3);
+					const vertices = new Float32Array(vertexCount * 3);
+					const uvs = new Float32Array(vertexCount * 2);
+
+					// geometry
+					const geometry = new THREE.BufferGeometry();
+					geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+					geometry.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
+					geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
+
+					let idxCount = 0;
+					let a, b1, c1, c2;
+
+					// 设置索引
+					for (let j = 0; j < ls; j++) {
+						for (let i = 0; i < ws; i++) {
+							a = wss * j + i;
+							b1 = wss * (j + 1) + i;
+							c1 = wss * (j + 1) + i + 1;
+							c2 = wss * j + i + 1;
+
+							indices[idxCount] = a;
+							indices[idxCount + 1] = b1;
+							indices[idxCount + 2] = c1;
+
+							//
+							indices[idxCount + 3] = a;
+							indices[idxCount + 4] = c1;
+							indices[idxCount + 5] = c2;
+
+							// 将当前几何体分割成组进行渲染，每个部分都会在单独的 WebGL 的 draw call 中进行绘制。该方法可以让当前的 bufferGeometry 可以使用一个材质队列进行描述。
+							geometry.addGroup(idxCount, 6, i);
+
+							idxCount += 6;
+						}
+					}
+
+					// 重新设置 uv
+					let uvIdxCount = 0;
+					for (let j = 0; j < lss; j++) {
+						for (let i = 0; i < wss; i++) {
+							uvs[uvIdxCount] = lenList[j] / len;
+							uvs[uvIdxCount + 1] = i / ws;
+							uvIdxCount += 2;
+						}
+					}
+
+					let x, y, z;
+					let posIndex = 0; // position index
+					let tangent;
+
+					const normal = new THREE.Vector3();
+					const biNormal = new THREE.Vector3(0, 1, 0);
+
+					for (let j = 0; j < lss; j++) {
+						// 获取切线
+						tangent = curve.getTangent(j / ls);
+						tangents.push(tangent.clone());
+
+						// 计算法线 tangent.cross(biNormal)
+						normal.crossVectors(tangent, biNormal);
+						normal.y = 0;
+						normal.normalize();
+						normals.push(normal.clone());
+
+						biNormal.crossVectors(normal, tangent);
+						biNormals.push(biNormal.clone());
+					}
+
+					const dw = [-0.36, -0.34, -0.01, 0.01, 0.34, 0.36];
+
+					for (let j = 0; j < lss; j++) {
+						for (let i = 0; i < wss; i++) {
+							let x = points[j].x + dw[i] * normals[j].x;
+							let y = points[j].y;
+							let z = points[j].z + dw[i] * normals[j].z;
+
+							vertices[posIndex] = x;
+							vertices[posIndex + 1] = y;
+							vertices[posIndex + 2] = z;
+							posIndex += 3;
+						}
+					}
+					geometry.computeVertexNormals();
+
+					const texture = new THREE.TextureLoader().load("./textures/CentralMarking.png");
+					texture.wrapS = THREE.RepeatWrapping;
+					texture.repeat.set(ls * 2);
+
+					// const material = [
+					// 	new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
+					// 	new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide }),
+					// 	new THREE.MeshBasicMaterial({ map: texture, side: THREE.DoubleSide }),
+					// 	new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.DoubleSide }),
+					// 	new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }),
+					// ];
+					const material = new THREE.MeshStandardMaterial({ color: 0xffffff, side: THREE.DoubleSide, wireframe: true });
+					const road = new THREE.Mesh(geometry, material);
+					this.scene.add(road);
+
+					this.blueCar = new THREE.Object3D();
+					this.redCar = new THREE.Object3D();
+					this.gltfLoader.load("./models/gltf/car_02.gltf", this.processBlueCar.bind(this));
+					this.gltfLoader.load("./models/gltf/model.gltf", this.processRedCar.bind(this));
+
+					this.taskQueue.push(this.driving);
+				}
+				processBlueCar(gltf) {
+					gltf.scene.rotation.y = Math.PI; // gltf.scene is centered, rotatiom needed
+					this.blueCar.add(gltf.scene);
+					this.blueCar.scale.set(0.0015, 0.0015, 0.0015); // because gltf.scene is very big
+					this.scene.add(this.blueCar);
+				}
+				processRedCar(gltf) {
+					const box = new THREE.Box3().setFromObject(gltf.scene);
+					const c = box.getCenter(new THREE.Vector3());
+					const size = box.getSize(new THREE.Vector3());
+					gltf.scene.position.set(-c.x - 0.3, size.y / 2 - c.y, -c.z + 2.2); // center the gltf scene
+					gltf.scene.rotation.y = Math.PI / 2; // rotatiom needed
+					this.redCar.add(gltf.scene);
+					this.redCar.scale.set(0.4, 0.4, 0.4); // because gltf.scene is  big
+					this.scene.add(this.redCar);
+				}
+
+				driving() {
+					if (iBlue === lss) {
+						iBlue = 0;
+					}
+					if (iRed === -1) {
+						iRed = ls; // loop
+					}
+
+					// transposed arranged
+					M3.set(
+						tangents[iBlue].x,
+						biNormals[iBlue].x,
+						normals[iBlue].x,
+						tangents[iBlue].y,
+						biNormals[iBlue].y,
+						normals[iBlue].y,
+						tangents[iBlue].z,
+						biNormals[iBlue].z,
+						normals[iBlue].z
+					);
+					M4.setFromMatrix3(M3);
+
+					this.blueCar.setRotationFromMatrix(M4);
+					this.blueCar.position.set(
+						points[iBlue].x + 0.18 * normals[iBlue].x,
+						points[iBlue].y,
+						points[iBlue].z + 0.18 * normals[iBlue].z
+					);
+					iBlue++;
+
+					M3.set(
+						tangents[iRed].x,
+						biNormals[iRed].x,
+						normals[iRed].x,
+						tangents[iRed].y,
+						biNormals[iRed].y,
+						normals[iRed].y,
+						tangents[iRed].z,
+						biNormals[iRed].z,
+						normals[iRed].z
+					);
+					M4.setFromMatrix3(M3);
+					this.redCar.setRotationFromMatrix(M4);
+
+					this.redCar.position.set(
+						points[iRed].x - 0.18 * normals[iRed].x,
+						points[iRed].y,
+						points[iRed].z - 0.18 * normals[iRed].z
+					);
+					iRed--;
+				}
+
+				init() {
+					this.taskQueue = [];
+
+					this.clock = new THREE.Clock();
+					this.deltaTime = this.clock.getDelta();
+					this.elapsedTime = {
+						value: this.clock.getElapsedTime(),
+					};
+					this.stats = new Stats();
+					document.body.appendChild(this.stats.domElement);
+
+					// this.renderer = new WebGPURenderer({ antialias: true });
+					this.renderer = new THREE.WebGLRenderer({ antialias: true });
+
+					this.renderer.setPixelRatio(window.devicePixelRatio);
+					this.renderer.setSize(innerWidth, innerHeight);
+					this.renderer.setAnimationLoop(this.animate.bind(this));
+					document.body.appendChild(this.renderer.domElement);
+
+					const _fov = 60;
+					const _aspect = aspect;
+					const _near = 0.01;
+					const _far = 1000;
+					this.camera = new THREE.PerspectiveCamera(_fov, _aspect, _near, _far);
+					this.camera.position.set(0, 20, 20);
+
+					this.scene = new THREE.Scene();
+
+					this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+
+					this.gltfLoader = new GLTFLoader();
+
+					const grid = new THREE.GridHelper(100);
+					this.scene.add(grid);
+
+					const light = new THREE.AmbientLight(0xffffff, 0.5);
+					this.scene.add(light);
+
+					window.addEventListener("resize", (e) => {
+						const { innerWidth, innerHeight } = window;
+						this.camera.aspect = innerWidth / innerHeight;
+						this.camera.updateProjectionMatrix();
+						this.renderer.setSize(innerWidth, innerHeight);
+					});
+				}
+
+				animate() {
+					this.controls.update();
+					this.deltaTime = this.clock.getDelta();
+					this.elapsedTime.value = this.clock.getElapsedTime();
+					this.taskQueue.forEach((f) => {
+						f.bind(this)();
+					});
+					this.stats && this.stats.update();
+					this.renderer.render(this.scene, this.camera);
+				}
+			}
+			new Base();
+		</script>
+	</body>
+</html>

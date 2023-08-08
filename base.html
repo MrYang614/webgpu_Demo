@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Document</title>
+
+		<style>
+			* {
+				margin: 0;
+				padding: 0;
+			}
+			.options {
+				position: absolute;
+				left: 0;
+				top: 0;
+				background-color: rgba(255, 255, 0, 0.3);
+				z-index: 1;
+			}
+		</style>
+	</head>
+	<body>
+		<span class="options"></span>
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "./three/build/three.module.js",
+					"three/addons/": "./three/examples/jsm/",
+					"three/nodes": "./three/examples/jsm/nodes/Nodes.js"
+				}
+			}
+		</script>
+		<script type="module">
+			import * as THREE from "three";
+			import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+			import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+			import Stats from "three/addons/libs/stats.module.js";
+			import WebGPURenderer from "three/addons/renderers/webgpu/WebGPURenderer.js";
+
+			const { innerWidth, innerHeight } = window;
+			const aspect = innerWidth / innerHeight;
+
+			class Base {
+				constructor() {
+					this.init();
+					this.main();
+				}
+				main() {}
+				init() {
+					this.taskQueue = [];
+
+					this.clock = new THREE.Clock();
+					this.deltaTime = this.clock.getDelta();
+					this.elapsedTime = {
+						value: this.clock.getElapsedTime(),
+					};
+					this.stats = new Stats();
+					document.body.appendChild(this.stats.domElement);
+
+					this.renderer = new WebGPURenderer({ antialias: true });
+					// this.renderer = new THREE.WebGLRenderer({ antialias: true });
+
+					this.renderer.setPixelRatio(window.devicePixelRatio);
+					this.renderer.setSize(innerWidth, innerHeight);
+					this.renderer.setAnimationLoop(this.animate.bind(this));
+					document.body.appendChild(this.renderer.domElement);
+
+					const _fov = 60;
+					const _aspect = aspect;
+					const _near = 0.01;
+					const _far = 1000;
+					this.camera = new THREE.PerspectiveCamera(_fov, _aspect, _near, _far);
+					this.camera.position.set(0, 20, 20);
+
+					this.scene = new THREE.Scene();
+
+					this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+
+					this.gltfLoader = new GLTFLoader();
+
+					const grid = new THREE.GridHelper(100);
+					this.scene.add(grid);
+
+					const light = new THREE.AmbientLight(0xffffff, 0.5);
+					this.scene.add(light);
+
+					window.addEventListener("resize", (e) => {
+						const { innerWidth, innerHeight } = window;
+						this.camera.aspect = innerWidth / innerHeight;
+						this.camera.updateProjectionMatrix();
+						this.renderer.setSize(innerWidth, innerHeight);
+					});
+				}
+				animate() {
+					this.controls.update();
+					this.deltaTime = this.clock.getDelta();
+					this.elapsedTime.value = this.clock.getElapsedTime();
+					this.taskQueue.forEach((f) => {
+						f.bind(this)();
+					});
+					this.stats && this.stats.update();
+					this.renderer.render(this.scene, this.camera);
+				}
+			}
+			new Base();
+		</script>
+	</body>
+</html>

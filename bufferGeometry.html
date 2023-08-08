@@ -46,97 +46,7 @@
 					this.main();
 				}
 				main() {
-					const planeGeometry = new THREE.PlaneGeometry(100, 100, 512, 512);
-					const basicMaterial = new THREE.MeshBasicMaterial({
-						transparent: true,
-						side: THREE.DoubleSide,
-					});
-					basicMaterial.onBeforeCompile = (shader) => {
-						shader.uniforms.iTime = this.elapsedTime;
-						shader.uniforms.iResolution = {
-							value: {
-								x: innerWidth / 2,
-								y: innerHeight / 2,
-							},
-						};
-
-						shader.fragmentShader = shader.fragmentShader.replace(
-							`#include <common>`,
-							`
-						    uniform float iTime;
-                            uniform vec2 iResolution;
-						    #include <common>
-						    `
-						);
-
-						shader.fragmentShader = shader.fragmentShader.replace(
-							"vec4 diffuseColor = vec4( diffuse, opacity );",
-							`
-						    vec3 c;
-						    float l,z=iTime;
-						    for(int i=0;i<3;i++) {
-						    vec2 uv,p=gl_FragCoord.xy/iResolution/2.0;
-						    uv=p + 2.0;
-
-						    #ifdef USE_UV
-						    uv *= vUv;
-						    #else
-						    uv *= vec2(0.0);
-						    #endif
-
-						    p-=.5;
-						    p.x*=iResolution.x/iResolution.y;
-						    z+=.07;
-						    l=length(p);
-						    uv+=p/l*(sin(z)+1.)*abs(sin(l*9.-z-z));
-						    c[i]=.01/length(mod(uv,1.)-.5);
-						    }
-
-						    vec4 diffuseColor = vec4( diffuse * c, opacity );
-						    `
-						);
-					};
-					const shaderMaterial = new THREE.ShaderMaterial({
-						transparent: true,
-						side: THREE.DoubleSide,
-						depthWrite: false,
-						uniforms: {
-							iTime: this.elapsedTime,
-						},
-						vertexShader: `
-                        varying vec2 vUv;
-                        void main() {
-                            vUv = uv;
-                            vec3 pos = position;
-                            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos,1.0);
-                        }
-                        `,
-						fragmentShader: `
-                        uniform float iTime;
-                        varying vec2 vUv;
-                        #define t iTime
-
-                        void main(){
-                            vec3 c;
-                            float l,z=t;
-                            for(int i=0;i<3;i++) {
-                                vec2 p=vUv;
-                                vec2 uv=vUv;
-                                p-=.5;
-                                z+=.07;
-                                l=length(p);
-                                uv+=p/l*(sin(z)+1.)*abs(sin(l*9.-z-z));
-                                c[i]=.01/length(mod(uv,1.)-.5);
-                            }
-
-
-                            gl_FragColor=vec4(c/l,t);
-                        }
-                        `,
-					});
-
-					const mesh = new THREE.Mesh(planeGeometry, shaderMaterial);
-					this.scene.add(mesh);
+					this.createCenter();
 				}
 				init() {
 					this.taskQueue = [];
@@ -178,6 +88,38 @@
 						this.camera.updateProjectionMatrix();
 						this.renderer.setSize(innerWidth, innerHeight);
 					});
+				}
+				createCenter() {
+					const centerGeo = new THREE.BufferGeometry();
+
+					// 每个面由2个三角面组成，每个三角面有3个顶点，每个顶点有3个数据，总共6面， 2*3*3*6
+					const centerVertices = new Float32Array([
+						// front
+						-1, 1, 0, -1, -1, 0, 1, -1, 0, 1, -1, 0, -1, 1, 0, 1, 1, 0,
+						// back
+						-2, 2, -4, -2, -2, -4, 2, -2, -4, 2, -2, -4, -2, 2, -4, 2, 2, -4,
+					]);
+
+					const colors = new Float32Array([
+						// front
+						1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 1,
+					]);
+
+					const centerAttr = new THREE.BufferAttribute(centerVertices, 3);
+					const centerColor = new THREE.BufferAttribute(colors, 3);
+					centerGeo.setAttribute("position", centerAttr);
+					centerGeo.setAttribute("color", centerColor);
+					centerGeo.computeVertexNormals();
+					const centerMat = new THREE.MeshStandardMaterial({
+						vertexColors: true,
+						side: THREE.DoubleSide,
+					});
+
+					const centerMesh = new THREE.Mesh(centerGeo, centerMat);
+					centerMesh.position.set(0, 0, -10);
+					centerMesh.rotation.y = Math.PI;
+
+					this.scene.add(centerMesh);
 				}
 				animate() {
 					this.controls.update();

@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Document</title>
+
+		<style>
+			* {
+				margin: 0;
+				padding: 0;
+			}
+			.options {
+				position: absolute;
+				left: 0;
+				top: 0;
+				background-color: rgba(255, 255, 0, 0.3);
+				z-index: 1;
+			}
+		</style>
+	</head>
+	<body>
+		<span class="options"></span>
+		<script type="importmap">
+			{
+				"imports": {
+					"three": "./three/build/three.module.js",
+					"three/addons/": "./three/examples/jsm/",
+					"three/nodes": "./three/examples/jsm/nodes/Nodes.js"
+				}
+			}
+		</script>
+		<script type="module">
+			import * as THREE from "three";
+			import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+			import Stats from "three/addons/libs/stats.module.js";
+			import WebGPURenderer from "three/addons/renderers/webgpu/WebGPURenderer.js";
+
+			const { innerWidth, innerHeight } = window;
+			const aspect = innerWidth / innerHeight;
+
+			class Base {
+				constructor() {
+					this.init();
+					this.main();
+				}
+				main() {
+					this.createCenter();
+				}
+				init() {
+					this.taskQueue = [];
+
+					this.clock = new THREE.Clock();
+					this.deltaTime = this.clock.getDelta();
+					this.elapsedTime = {
+						value: this.clock.getElapsedTime(),
+					};
+					this.stats = new Stats();
+					document.body.appendChild(this.stats.domElement);
+
+					this.renderer = new WebGPURenderer({ antialias: true });
+					// this.renderer = new THREE.WebGLRenderer({ antialias: true });
+
+					this.renderer.setPixelRatio(window.devicePixelRatio);
+					this.renderer.setSize(innerWidth, innerHeight);
+					this.renderer.setAnimationLoop(this.animate.bind(this));
+					document.body.appendChild(this.renderer.domElement);
+
+					const _fov = 60;
+					const _aspect = aspect;
+					const _near = 0.01;
+					const _far = 1000;
+					this.camera = new THREE.PerspectiveCamera(_fov, _aspect, _near, _far);
+					this.camera.position.set(0, 0, 10);
+
+					this.scene = new THREE.Scene();
+
+					this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+
+					const grid = new THREE.GridHelper(100);
+					this.scene.add(grid);
+
+					const light = new THREE.AmbientLight(0xffffff, 0.5);
+					this.scene.add(light);
+
+					window.addEventListener("resize", (e) => {
+						const { innerWidth, innerHeight } = window;
+						this.camera.aspect = innerWidth / innerHeight;
+						this.camera.updateProjectionMatrix();
+						this.renderer.setSize(innerWidth, innerHeight);
+					});
+				}
+
+				// 点球
+				PointsSphere(n, dri, r, dro) {
+					// n: points count,  dri: inner difference , r: radius main, dro: outer difference
+
+					const pts = [];
+
+					for (let i = 0; i < n; i++) {
+						const inout = (Math.random() - 0.5) * 2;
+						const lim = inout >= 0 ? dro : dri;
+						const rand = r + Math.pow(Math.random(), 3) * lim * inout;
+
+						const θ = Math.PI * 2 * Math.random();
+						const φ = Math.acos(2 * Math.random() - 1);
+
+						const ps = new THREE.Vector3(Math.cos(θ) * Math.sin(φ), Math.sin(θ) * Math.sin(φ), Math.cos(φ));
+						pts.push(ps.multiplyScalar(rand));
+					}
+
+					const geometry = new THREE.BufferGeometry().setFromPoints(pts);
+
+					return geometry;
+				}
+				createCenter() {
+					// function randomPoints() {
+					// 	const geometry = new THREE.BufferGeometry();
+
+					// 	var positions = [];
+
+					// 	for (let i = 0; i < 50000; i++) {
+					// 		const phi = Math.random() * Math.PI * 2;
+
+					// 		const r = Math.pow(Math.random(), 1 / 6) + 0.2;
+					// 		let v = new THREE.Vector2();
+					// 		v.x = r * Math.cos(phi);
+					// 		v.y = r * Math.sin(phi);
+
+					// 		positions.push(v.x, v.y, 0);
+					// 	}
+
+					// 	geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+
+					// 	const material = new THREE.PointsMaterial({ color: 0xffff34, size: 0.001 });
+					// 	return new THREE.Points(geometry, material);
+					// }
+
+					// function randomPointInSphere(radius) {
+					// 	const x = THREE.MathUtils.randFloat(-1, 1);
+					// 	const y = THREE.MathUtils.randFloat(-1, 1);
+					// 	const z = THREE.MathUtils.randFloat(-1, 1);
+					// 	const normalizationFactor = 1 / Math.sqrt(x * x + y * y + z * z);
+
+					// 	v.x = x * normalizationFactor * radius;
+					// 	v.y = y * normalizationFactor * radius;
+					// 	v.z = z * normalizationFactor * radius;
+
+					// 	return v;
+					// }
+
+					// function initPoints() {
+					// 	const geometry = new THREE.BufferGeometry();
+
+					// 	var positions = [];
+
+					// 	for (var i = 0; i < 5000000; i++) {
+					// 		var vertex = randomPointInSphere(50);
+					// 		positions.push(vertex.x, vertex.y, vertex.z);
+					// 	}
+
+					// 	geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+
+					// 	const material = new THREE.PointsMaterial({ color: 0xff00ff, size: 0.1 });
+
+					// 	return new THREE.Points(geometry, material);
+					// }
+
+					// this.scene.add(randomPoints());
+					// this.scene.add(randomPointInSphere());
+
+					const P = new THREE.Points(this.PointsSphere(50000, 30, 30, 0));
+					this.scene.add(P);
+				}
+				animate() {
+					this.controls.update();
+					this.deltaTime = this.clock.getDelta();
+					this.stats && this.stats.update();
+					this.elapsedTime.value = this.clock.getElapsedTime();
+					this.taskQueue.forEach((f) => {
+						f.bind(this)();
+					});
+					this.renderer.render(this.scene, this.camera);
+				}
+			}
+			new Base();
+		</script>
+	</body>
+</html>
